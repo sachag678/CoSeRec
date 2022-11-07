@@ -24,7 +24,7 @@ class Trainer:
         self.device = torch.device("cuda" if self.cuda_condition else "cpu")
 
         self.model = model
-        self.online_similarity_model = args.online_similarity_model
+        #self.online_similarity_model = args.online_similarity_model
 
         self.total_augmentaion_pairs = nCr(self.args.n_views, 2)
         #projection head for contrastive learn task
@@ -64,9 +64,9 @@ class Trainer:
         
     def train(self, epoch):
         # start to use online item similarity
-        if epoch > self.args.augmentation_warm_up_epoches:
-            print("refresh dataset with updated item embedding")
-            self.train_dataloader = self.__refresh_training_dataset(self.model.item_embeddings)
+        #if epoch > self.args.augmentation_warm_up_epoches:
+        #    print("refresh dataset with updated item embedding")
+        #    self.train_dataloader = self.__refresh_training_dataset(self.model.item_embeddings)
         self.iteration(epoch, self.train_dataloader)
 
     def valid(self, epoch, full_sort=False):
@@ -198,7 +198,7 @@ class CoSeRecTrainer(Trainer):
             print(f"rec dataset length: {len(dataloader)}")
             rec_cf_data_iter = tqdm(enumerate(dataloader), total=len(dataloader))
 
-            for i, (rec_batch, cl_batches) in rec_cf_data_iter:
+            for i, rec_batch in rec_cf_data_iter:
                 '''
                 rec_batch shape: key_name x batch_size x feature_dim
                 cl_batches shape: 
@@ -206,38 +206,41 @@ class CoSeRecTrainer(Trainer):
                 '''
                 # 0. batch_data will be sent into the device(GPU or CPU)
                 rec_batch = tuple(t.to(self.device) for t in rec_batch)
-                _, input_ids, target_pos, target_neg, _ = rec_batch
+                _, input_ids, target_pos, target_neg, _, publishers, prices, genres = rec_batch
 
                 # ---------- recommendation task ---------------#
-                sequence_output = self.model.transformer_encoder(input_ids)
+                sequence_output = self.model.transformer_encoder(input_ids, publishers, prices, genres)
                 rec_loss = self.cross_entropy(sequence_output, target_pos, target_neg)
 
                 # ---------- contrastive learning task -------------#
-                cl_losses = []
-                for cl_batch in cl_batches:
-                    cl_loss = self._one_pair_contrastive_learning(cl_batch)
-                    cl_losses.append(cl_loss)
+
+                #cl_losses = []
+                #for cl_batch in cl_batches:
+                #    cl_loss = self._one_pair_contrastive_learning(cl_batch)
+                #    cl_losses.append(cl_loss)
 
                 joint_loss = self.args.rec_weight * rec_loss
-                for cl_loss in cl_losses:
-                    joint_loss += self.args.cf_weight * cl_loss
+
+                #for cl_loss in cl_losses:
+                #    joint_loss += self.args.cf_weight * cl_loss
+
                 self.optim.zero_grad()
                 joint_loss.backward()
                 self.optim.step()
 
                 rec_avg_loss += rec_loss.item()
 
-                for i, cl_loss in enumerate(cl_losses):
-                    cl_individual_avg_losses[i] += cl_loss.item()
-                    cl_sum_avg_loss += cl_loss.item()
-                joint_avg_loss += joint_loss.item()
+                #for i, cl_loss in enumerate(cl_losses):
+                #    cl_individual_avg_losses[i] += cl_loss.item()
+                #    cl_sum_avg_loss += cl_loss.item()
+                #joint_avg_loss += joint_loss.item()
 
 
             post_fix = {
                 "epoch": epoch,
                 "rec_avg_loss": '{:.4f}'.format(rec_avg_loss / len(rec_cf_data_iter)),
                 "joint_avg_loss": '{:.4f}'.format(joint_avg_loss / len(rec_cf_data_iter)),
-                "cl_avg_loss": '{:.4f}'.format(cl_sum_avg_loss / (len(rec_cf_data_iter)*self.total_augmentaion_pairs)),
+                #"cl_avg_loss": '{:.4f}'.format(cl_sum_avg_loss / (len(rec_cf_data_iter)*self.total_augmentaion_pairs)),
             }
             for i, cl_individual_avg_loss in enumerate(cl_individual_avg_losses):
                 post_fix['cl_pair_'+str(i)+'_loss'] = '{:.4f}'.format(cl_individual_avg_loss / len(rec_cf_data_iter))
@@ -262,8 +265,8 @@ class CoSeRecTrainer(Trainer):
                 for i, batch in rec_data_iter:
                     # 0. batch_data will be sent into the device(GPU or cpu)
                     batch = tuple(t.to(self.device) for t in batch)
-                    user_ids, input_ids, target_pos, target_neg, answers = batch
-                    recommend_output = self.model.transformer_encoder(input_ids)
+                    user_ids, input_ids, target_pos, target_neg, answers, publishers, prices, genres = batch
+                    recommend_output = self.model.transformer_encoder(input_ids, publishers, prices, genres)
 
                     recommend_output = recommend_output[:, -1, :]
                     # recommendation results

@@ -17,6 +17,8 @@ class SASRecModel(nn.Module):
         super(SASRecModel, self).__init__()
         self.item_embeddings = nn.Embedding(args.item_size, args.hidden_size, padding_idx=0)
         self.position_embeddings = nn.Embedding(args.max_seq_length, args.hidden_size)
+        self.publisher_embeddings = nn.Embedding(args.publisher_size, args.hidden_size)
+        self.genre_embeddings = nn.Embedding(args.genre_size, args.hidden_size)
         self.item_encoder = Encoder(args)
         self.LayerNorm = LayerNorm(args.hidden_size, eps=1e-12)
         self.dropout = nn.Dropout(args.hidden_dropout_prob)
@@ -27,21 +29,24 @@ class SASRecModel(nn.Module):
 
 
     # Positional Embedding
-    def add_position_embedding(self, sequence):
+    def add_position_embedding(self, sequence, publishers, prices, genres):
 
         seq_length = sequence.size(1)
         position_ids = torch.arange(seq_length, dtype=torch.long, device=sequence.device)
         position_ids = position_ids.unsqueeze(0).expand_as(sequence)
         item_embeddings = self.item_embeddings(sequence)
         position_embeddings = self.position_embeddings(position_ids)
-        sequence_emb = item_embeddings + position_embeddings
+        publisher_embeddings = self.publisher_embeddings(publishers)
+        genre_embeddings = self.genre_embeddings(genres).mean(axis=2)
+
+        sequence_emb = item_embeddings + position_embeddings + publisher_embeddings + genre_embeddings + prices.unsqueeze(2)
         sequence_emb = self.LayerNorm(sequence_emb)
         sequence_emb = self.dropout(sequence_emb)
 
         return sequence_emb
 
     # model same as SASRec
-    def transformer_encoder(self, input_ids):
+    def transformer_encoder(self, input_ids, publishers, prices, genres):
 
         attention_mask = (input_ids > 0).long()
         extended_attention_mask = attention_mask.unsqueeze(1).unsqueeze(2) # torch.int64
@@ -58,7 +63,7 @@ class SASRecModel(nn.Module):
         extended_attention_mask = extended_attention_mask.to(dtype=next(self.parameters()).dtype) # fp16 compatibility
         extended_attention_mask = (1.0 - extended_attention_mask) * -10000.0
 
-        sequence_emb = self.add_position_embedding(input_ids)
+        sequence_emb = self.add_position_embedding(input_ids, publishers, prices, genres)
 
         item_encoded_layers = self.item_encoder(sequence_emb,
                                                 extended_attention_mask,

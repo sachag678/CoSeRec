@@ -152,6 +152,26 @@ def get_user_seqs(data_file):
     test_rating_matrix = generate_rating_matrix_test(user_seq, num_users, num_items)
     return user_seq, max_item, valid_rating_matrix, test_rating_matrix
 
+def get_user_seqs_extra(data_file):
+    lines = open(data_file).readlines()
+    user_seq = []
+    item_set = set()
+    for line in lines:
+        items_extra = line.strip().split(';')[:-1]
+        items = [[float(it) for it in item.split(',')] for item in items_extra]
+        user_seq.append(items)
+        item_set = item_set | set([item[0] for item in items])
+    max_item = max(item_set)
+
+    num_users = len(lines)
+    num_items = int(max_item) + 2
+
+    mod_user_seq = [[int(u[0]) for u in user] for user in user_seq]
+
+    valid_rating_matrix = generate_rating_matrix_valid(mod_user_seq, num_users, num_items)
+
+    return user_seq, int(max_item), valid_rating_matrix
+
 def get_user_seqs_long(data_file):
     lines = open(data_file).readlines()
     user_seq = []

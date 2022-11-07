@@ -8,11 +8,11 @@ import argparse
 
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 
-from datasets import RecWithContrastiveLearningDataset
+from datasets import RecWithContrastiveLearningDataset, SASRecDataset
 
 from trainers import CoSeRecTrainer
 from models import SASRecModel, OfflineItemSimilarity, OnlineItemSimilarity
-from utils import EarlyStopping, get_user_seqs, get_item2attribute_json, check_path, set_seed
+from utils import EarlyStopping, get_user_seqs_extra, get_item2attribute_json, check_path, set_seed
 
 def show_args_info(args):
     print(f"--------------------Configure Info:------------")
@@ -79,7 +79,7 @@ def main():
     parser.add_argument("--attention_probs_dropout_prob", type=float, default=0.5, help="attention dropout p")
     parser.add_argument("--hidden_dropout_prob", type=float, default=0.5, help="hidden dropout p")
     parser.add_argument("--initializer_range", type=float, default=0.02)
-    parser.add_argument('--max_seq_length', default=50, type=int)
+    parser.add_argument('--max_seq_length', default=10, type=int)
 
     # train args
     parser.add_argument("--lr", type=float, default=0.001, help="learning rate of adam")
@@ -98,6 +98,10 @@ def main():
     parser.add_argument("--adam_beta1", type=float, default=0.9, help="adam first beta value")
     parser.add_argument("--adam_beta2", type=float, default=0.999, help="adam second beta value")
 
+    # steam dataset args
+    parser.add_argument("--publisher_size", type=int, default=8226)
+    parser.add_argument("--genre_size", type=int, default=22)
+
     args = parser.parse_args()
 
     set_seed(args.seed)
@@ -108,11 +112,12 @@ def main():
     print("Using Cuda:", torch.cuda.is_available())
     args.data_file = args.data_dir + args.data_name + '.txt'
 
-    user_seq, max_item, valid_rating_matrix, test_rating_matrix = \
-        get_user_seqs(args.data_file)
+    user_seq, max_item, valid_rating_matrix = get_user_seqs_extra(args.data_file)
 
     args.item_size = max_item + 2
     args.mask_id = max_item + 1
+
+    print(f'item size: {args.item_size}, type: {type(args.item_size)}')
 
     # save model args
     args_str = f'{args.model_name}-{args.data_name}-{args.model_idx}'
@@ -131,6 +136,7 @@ def main():
     args.checkpoint_path = os.path.join(args.output_dir, checkpoint)
 
     # -----------   pre-computation for item similarity   ------------ #
+    '''
     args.similarity_model_path = os.path.join(args.data_dir,\
                             args.data_name+'_'+args.similarity_model_name+'_similarity.pkl')
 
@@ -143,19 +149,20 @@ def main():
     # -----------   online based on shared item embedding for item similarity --------- #
     online_similarity_model = OnlineItemSimilarity(item_size=args.item_size)
     args.online_similarity_model = online_similarity_model
+    '''
 
     # training data for node classification
-    train_dataset = RecWithContrastiveLearningDataset(args, 
+    train_dataset = SASRecDataset(args,
                                     user_seq[:int(len(user_seq)*args.training_data_ratio)], \
                                     data_type='train')
-    train_sampler = RandomSampler(train_dataset)
+    train_sampler = SequentialSampler(train_dataset)
     train_dataloader = DataLoader(train_dataset, sampler=train_sampler, batch_size=args.batch_size)
 
-    eval_dataset = RecWithContrastiveLearningDataset(args, user_seq, data_type='valid')
+    eval_dataset = SASRecDataset(args, user_seq, data_type='valid')
     eval_sampler = SequentialSampler(eval_dataset)
     eval_dataloader = DataLoader(eval_dataset, sampler=eval_sampler, batch_size=args.batch_size)
 
-    test_dataset = RecWithContrastiveLearningDataset(args, user_seq, data_type='test')
+    test_dataset = SASRecDataset(args, user_seq, data_type='test')
     test_sampler = SequentialSampler(test_dataset)
     test_dataloader = DataLoader(test_dataset, sampler=test_sampler, batch_size=args.batch_size)
 
@@ -173,7 +180,7 @@ def main():
         scores, result_info = trainer.test(0, full_sort=True)
 
     else:
-        print(f'Train CoSeRec')
+        print(f'Train SASRec')
         early_stopping = EarlyStopping(args.checkpoint_path, patience=40, verbose=True)
         for epoch in range(args.epochs):
             trainer.train(epoch)

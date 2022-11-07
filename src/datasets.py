@@ -186,7 +186,7 @@ class SASRecDataset(Dataset):
         self.data_type = data_type
         self.max_len = args.max_seq_length
 
-    def _data_sample_rec_task(self, user_id, items, input_ids, target_pos, answer):
+    def _data_sample_rec_task(self, user_id, items, input_ids, target_pos, answer, extras):
         # make a deep copy to avoid original sequence be modified
         copied_input_ids = copy.deepcopy(input_ids)
         target_neg = []
@@ -194,10 +194,26 @@ class SASRecDataset(Dataset):
         for _ in input_ids:
             target_neg.append(neg_sample(seq_set, self.args.item_size))
 
+        # convert the extra info into useful information
+        # input_ids is a [[product_id, product_publisher, price, genre upto 5]]
+        publishers = []
+        prices = []
+        genre = []
+        for item in extras:
+            publishers.append(item[1])
+            prices.append(item[2])
+            pad_len = 5 - len(item[3:])
+            genres = [0] * pad_len + item[3:]
+            genre.append(genres)
+
         pad_len = self.max_len - len(input_ids)
         input_ids = [0] * pad_len + input_ids
         target_pos = [0] * pad_len + target_pos
         target_neg = [0] * pad_len + target_neg
+        publishers = [0] * pad_len + publishers
+        prices = [0] * pad_len + prices
+        for i in range(pad_len):
+            genre.insert(0, [0] * 5)
 
         input_ids = input_ids[-self.max_len:]
         target_pos = target_pos[-self.max_len:]
@@ -225,6 +241,9 @@ class SASRecDataset(Dataset):
                 torch.tensor(target_pos, dtype=torch.long),
                 torch.tensor(target_neg, dtype=torch.long),
                 torch.tensor(answer, dtype=torch.long),
+                torch.tensor(publishers, dtype=torch.long),
+                torch.tensor(prices, dtype=torch.long),
+                torch.tensor(genre, dtype=torch.long),
             )
 
         return cur_rec_tensors
@@ -245,24 +264,33 @@ class SASRecDataset(Dataset):
 
         # test [0, 1, 2, 3, 4, 5]
         # answer [6]
+        extras = items
+        items = [item[0] for item in items]
+
         if self.data_type == "train":
             input_ids = items[:-3]
+            extras = extras[:-3]
             target_pos = items[1:-2]
             answer = [0] # no use
 
         elif self.data_type == 'valid':
             input_ids = items[:-2]
+            extras = extras[:-2]
             target_pos = items[1:-1]
+            if len(items) == 1:
+                print(index)
+                print(items)
             answer = [items[-2]]
 
         else:
             input_ids = items[:-1]
+            extras = extras[:-1]
             target_pos = items[1:]
             answer = [items[-1]]
 
 
         return self._data_sample_rec_task(user_id, items, input_ids, \
-                                            target_pos, answer)
+                                            target_pos, answer, extras)
 
     def __len__(self):
         return len(self.user_seq)
